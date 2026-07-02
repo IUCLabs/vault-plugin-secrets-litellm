@@ -1,0 +1,5 @@
+/dist/
+/vault-plugin-secrets-litellm
+*.out
+*.test
+.env

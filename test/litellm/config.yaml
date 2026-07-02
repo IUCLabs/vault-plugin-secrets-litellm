@@ -1,0 +1,22 @@
+model_list:
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: openai/gpt-3.5-turbo
+      api_key: sk-fake-openai-key
+      mock_response: "hello from the mock model"
+  - model_name: gpt-4
+    litellm_params:
+      model: openai/gpt-4
+      api_key: sk-fake-openai-key
+      mock_response: "hello from the mock model"
+  - model_name: claude-3-sonnet
+    litellm_params:
+      model: anthropic/claude-3-sonnet
+      api_key: sk-fake-anthropic-key
+      mock_response: "hello from the mock model"
+
+general_settings:
+  master_key: sk-master-e2e-1234
+
+litellm_settings:
+  drop_params: true
