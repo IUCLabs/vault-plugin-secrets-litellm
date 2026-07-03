@@ -6,3 +6,13 @@ steps:
     image: golang:1.25
     commands:
       - make build
+    backend_options:
+      kubernetes:
+        serviceAccountName: default
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 1
+          limits:
+            memory: 2Gi
+            cpu: 2
