@@ -1,0 +1,81 @@
+# End-to-end test stack. LiteLLM (backed by Postgres) plus two secrets-engine
+# hosts running the exact same plugin binary: HashiCorp Vault and OpenBao. Bind
+# mounts use the ":z" flag so they work under SELinux (Fedora/RHEL).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LITELLM_MASTER_KEY: sk-master-e2e-1234
+      DATABASE_URL: postgresql://litellm:litellm@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro,z
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness').status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  vault:
+    image: hashicorp/vault:1.18
+    depends_on:
+      litellm:
+        condition: service_healthy
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200", "-config=/vault/vault.hcl"]
+    volumes:
+      - ../dist:/vault/plugins:ro,z
+      - ./vault/vault.hcl:/vault/vault.hcl:ro,z
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  openbao:
+    image: openbao/openbao:latest
+    depends_on:
+      litellm:
+        condition: service_healthy
+    cap_add:
+      - IPC_LOCK
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: root
+      BAO_ADDR: http://127.0.0.1:8200
+      BAO_TOKEN: root
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200", "-config=/openbao/bao.hcl"]
+    volumes:
+      - ../dist:/openbao/plugins:ro,z
+      - ./openbao/bao.hcl:/openbao/bao.hcl:ro,z
+    ports:
+      - "8300:8200"
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

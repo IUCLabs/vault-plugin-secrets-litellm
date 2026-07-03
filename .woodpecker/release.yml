@@ -1,0 +1,38 @@
+when:
+  - event: tag
+
+steps:
+  - name: build
+    image: git.unkin.net/unkin/almalinux9-gobuilder:20260606
+    commands:
+      - make build VERSION=${CI_COMMIT_TAG}
+
+  - name: package
+    image: git.unkin.net/unkin/almalinux9-rpmbuilder:latest
+    commands:
+      - ./scripts/build-rpm.sh ${CI_COMMIT_TAG}
+    depends_on: [build]
+
+  - name: upload
+    image: git.unkin.net/unkin/almalinux9-base:20260606
+    commands:
+      - |
+        HOST="https://artifactapi.k8s.syd1.au.unkin.net"
+        REPO="rpm-internal"
+        for rpm in dist/*.rpm; do
+          FILE=$$(basename "$$rpm")
+          # Verify the package isn't already published before uploading.
+          # artifactapi has no HEAD route (returns 405), so probe with GET
+          # against the served path (RPMs are stored under Packages/).
+          code=$$(curl -s -o /dev/null -w '%{http_code}' "$$HOST/api/v2/remotes/$$REPO/files/Packages/$$FILE" || true)
+          if [ "$$code" = "200" ]; then
+            echo "$$FILE already exists in $$REPO (HTTP $$code); skipping upload"
+            continue
+          fi
+          echo "Uploading $$FILE to $$REPO (existence probe returned $$code)"
+          curl -f -X PUT \
+            "$$HOST/api/v2/remotes/$$REPO/files/$$FILE" \
+            -H "Content-Type: application/x-rpm" \
+            --data-binary @"$$rpm"
+        done
+    depends_on: [package]

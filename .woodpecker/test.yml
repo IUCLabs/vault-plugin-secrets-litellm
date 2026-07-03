@@ -1,0 +1,13 @@
+when:
+  - event: pull_request
+
+steps:
+  - name: lint
+    image: golang:1.25
+    commands:
+      - make lint
+
+  - name: test
+    image: golang:1.25
+    commands:
+      - make test
