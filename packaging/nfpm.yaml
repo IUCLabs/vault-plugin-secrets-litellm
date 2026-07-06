@@ -1,6 +1,8 @@
 ---
 # nfpm config for building the vault-plugin-secrets-litellm RPM.
 # Rendered through envsubst (see scripts/build-rpm.sh) then fed to `nfpm pkg`.
+# Built once per target server (Vault, OpenBao); PACKAGE_NAME and
+# PACKAGE_PLUGIN_DIR vary per flavour.
 
 name: ${PACKAGE_NAME}
 version: ${PACKAGE_VERSION}
@@ -18,19 +20,19 @@ license: ${PACKAGE_LICENSE}
 disable_globbing: false
 
 replaces:
-  - vault-plugin-secrets-litellm
+  - ${PACKAGE_NAME}
 provides:
-  - vault-plugin-secrets-litellm
+  - ${PACKAGE_NAME}
 
-# Install the plugin binary into the Vault/OpenBao plugin directory. Point the
-# server's plugin_directory at /opt/vault-plugins to pick it up.
+# Install the plugin binary into the server's plugin directory. Point the
+# server's plugin_directory at PACKAGE_PLUGIN_DIR to pick it up.
 contents:
   - src: dist/vault-plugin-secrets-litellm
-    dst: /opt/vault-plugins/vault-plugin-secrets-litellm
+    dst: ${PACKAGE_PLUGIN_DIR}/vault-plugin-secrets-litellm
     file_info:
       mode: 0755
       owner: root
       group: root
 
 scripts:
-  preinstall: packaging/scripts/preinstall.sh
+  preinstall: ${PACKAGE_PREINSTALL}
