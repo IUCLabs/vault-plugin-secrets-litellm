@@ -1,4 +1,4 @@
-.PHONY: build install test lint fmt clean tidy e2e e2e-vault e2e-openbao e2e-up e2e-down rpm rpm-package patch minor major check-go
+.PHONY: build install test lint fmt clean tidy e2e e2e-vault e2e-openbao e2e-up e2e-down rpm patch minor major check-go
 
 BINARY := vault-plugin-secrets-litellm
 PKG := ./cmd/vault-plugin-secrets-litellm
@@ -36,12 +36,8 @@ tidy:
 clean:
 	rm -rf $(PLUGIN_DIR)
 
-# Build the plugin binary then package it into an RPM with nfpm.
-rpm: build rpm-package
-
-# Package an already-built binary into an RPM (used by CI after the build step).
-rpm-package:
-	./scripts/build-rpm.sh $(VERSION)
+rpm:
+	GOTOOLCHAIN=auto go run github.com/goreleaser/goreleaser/v2@v2.20.2 release --snapshot --clean --skip=sign
 
 # End-to-end tests spin up LiteLLM + Postgres and both Vault and OpenBao in
 # Docker, then exercise the full lifecycle (configure, create role, generate,

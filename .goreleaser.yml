@@ -1,0 +1,56 @@
+version: 2
+project_name: vault-plugin-secrets-litellm
+
+builds:
+  - main: ./cmd/vault-plugin-secrets-litellm
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos: [linux]
+    goarch: [amd64]
+
+archives:
+  - formats: [none]
+
+nfpms:
+  - &rpm
+    id: vault
+    package_name: vault-plugin-secrets-litellm
+    bindir: /usr/libexec/vault-plugins
+    scripts:
+      preinstall: packaging/scripts/preinstall-vault.sh
+    replaces: [vault-plugin-secrets-litellm]
+    provides: [vault-plugin-secrets-litellm]
+    formats: [rpm]
+    file_name_template: "{{ .ConventionalFileName }}"
+    release: "1"
+    section: default
+    priority: extra
+    description: Vault/OpenBao dynamic secrets engine for LiteLLM virtual keys
+    maintainer: IUCLabs
+    homepage: https://github.com/IUCLabs/vault-plugin-secrets-litellm
+    license: MIT
+  - <<: *rpm
+    id: openbao
+    package_name: openbao-plugin-secrets-litellm
+    bindir: /usr/libexec/openbao-plugins
+    scripts:
+      preinstall: packaging/scripts/preinstall-openbao.sh
+    replaces: [openbao-plugin-secrets-litellm]
+    provides: [openbao-plugin-secrets-litellm]
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    cmd: scripts/sign.sh
+    args: ["${artifact}", "${signature}"]
+
+changelog:
+  disable: true

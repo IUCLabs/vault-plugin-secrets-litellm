@@ -20,16 +20,19 @@ To manage the engine's configuration and roles from Terraform, use
 
 ## Installation
 
-### Build
+### Install
+
+Install the x86_64 RPM (vault or openbao flavour) from the
+[releases page](https://github.com/IUCLabs/vault-plugin-secrets-litellm/releases).
+It installs the binary as `/usr/libexec/vault-plugins/vault-plugin-secrets-litellm`
+(vault) or `/usr/libexec/openbao-plugins/vault-plugin-secrets-litellm` (openbao).
+Or build one:
 
 ```sh
 git clone https://github.com/IUCLabs/vault-plugin-secrets-litellm
 cd vault-plugin-secrets-litellm
 make build   # writes ./dist/vault-plugin-secrets-litellm
 ```
-
-Or download a release binary from the
-[releases page](https://github.com/IUCLabs/vault-plugin-secrets-litellm/releases).
 
 ### Register
 
