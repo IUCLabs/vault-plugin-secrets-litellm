@@ -1,4 +1,4 @@
-module git.unkin.net/unkin/vault-plugin-secrets-litellm
+module github.com/IUCLabs/vault-plugin-secrets-litellm
 
 go 1.25.0
 

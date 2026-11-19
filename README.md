@@ -1,115 +1,120 @@
 # vault-plugin-secrets-litellm
 
-A dynamic secrets engine for [LiteLLM](https://github.com/BerriAI/litellm) that
-runs on both **HashiCorp Vault** and **[OpenBao](https://openbao.org)**.
-It generates **virtual API keys** on a LiteLLM proxy that are:
+A dynamic secrets engine for [HashiCorp Vault](https://www.vaultproject.io) and
+[OpenBao](https://openbao.org) that issues [LiteLLM](https://github.com/BerriAI/litellm)
+virtual API keys. Each key is scoped to a set of models, capped by a spending
+limit and bound to a Vault lease: renewing the lease extends the key, revoking
+the lease deletes the key from the LiteLLM proxy.
 
-- **scoped to specific models** (`models`)
-- capped by a **spending limit** (`max_budget`)
-- bound to a **lease TTL** — revoking the lease revokes the key in LiteLLM
+The same plugin binary runs unchanged on Vault and OpenBao. Every `vault`
+command below works with `bao` in its place.
 
-## Vault and OpenBao
+To manage the engine's configuration and roles from Terraform, use
+[terraform-provider-vault-secrets-litellm](https://github.com/IUCLabs/terraform-provider-vault-secrets-litellm).
 
-OpenBao is a fork of Vault and keeps its plugin protocol compatible, so the
-**same plugin binary** registers and runs on either engine unchanged — the CLI
-commands below are identical apart from `vault` vs `bao`. The end-to-end test
-suite exercises the full lifecycle against both to prove it.
+## Requirements
 
-## How it works
+- Vault or OpenBao (tested against Vault 1.18 and the latest OpenBao release)
+- A LiteLLM proxy with a database-backed key store and a master key
+- Go 1.25+ (to build from source)
 
-The backend authenticates to the LiteLLM proxy with the master key and manages
-virtual keys through the proxy's key-management API (`/key/generate`,
-`/key/update`, `/key/delete`, `/key/info`). Each generated key is wrapped in a
-Vault lease, so Vault owns the key's lifecycle: renew extends it, revoke deletes
-it.
+## Installation
 
+### Build
+
+```sh
+git clone https://github.com/IUCLabs/vault-plugin-secrets-litellm
+cd vault-plugin-secrets-litellm
+make build   # writes ./dist/vault-plugin-secrets-litellm
 ```
-┌─────────┐  read creds/<role>   ┌──────────────────────┐  /key/generate   ┌──────────┐
-│  client │ ───────────────────► │ vault + litellm plugin│ ───────────────► │ litellm  │
-└─────────┘  ◄─── virtual key ── └──────────────────────┘  ◄── sk-... ───── └──────────┘
+
+Or download a release binary from the
+[releases page](https://github.com/IUCLabs/vault-plugin-secrets-litellm/releases).
+
+### Register
+
+Copy the binary into the directory set as `plugin_directory` in the server
+config (Vault or OpenBao), then register it in the plugin catalog with its
+SHA-256. Replace `<plugin_directory>` below with that path:
+
+```sh
+cp dist/vault-plugin-secrets-litellm <plugin_directory>/
+
+SHA256=$(sha256sum <plugin_directory>/vault-plugin-secrets-litellm | cut -d' ' -f1)
+
+vault plugin register \
+  -sha256="$SHA256" \
+  secret vault-plugin-secrets-litellm
+```
+
+### Enable
+
+```sh
+vault secrets enable -path=litellm vault-plugin-secrets-litellm
+```
+
+## Configuration
+
+Point the engine at the LiteLLM proxy. The master key is write-only and is
+never returned on read.
+
+```sh
+vault write litellm/config \
+  base_url=https://litellm.example.com \
+  master_key=sk-master-...
 ```
 
 ## Usage
 
+Create a role that sets the models, budget and TTL of the keys it issues:
+
 ```sh
-# 1. Enable the engine
-vault secrets enable -path=litellm vault-plugin-secrets-litellm
-
-# 2. Configure the connection to the LiteLLM proxy
-vault write litellm/config \
-  base_url=http://litellm:4000 \
-  master_key=sk-master-...
-
-# 3. Define a role: which models, how much budget, what TTL
 vault write litellm/roles/team-a \
-  models="gpt-3.5-turbo,gpt-4" \
+  models="gpt-4o,claude-3-5-sonnet" \
   max_budget=50 \
   ttl=1h \
   max_ttl=24h
-
-# 4. Generate a scoped, budgeted, time-limited virtual key
-vault read litellm/creds/team-a
-# Key                key
-# ---                ---
-# lease_id           litellm/creds/team-a/AbC...
-# lease_duration     1h
-# key                sk-...
-# max_budget         50
-# models             [gpt-3.5-turbo gpt-4]
-
-# 5. Revoking the lease revokes the key in LiteLLM
-vault lease revoke litellm/creds/team-a/AbC...
 ```
 
-## Paths
+Generate a key:
 
-| Path                     | Ops                | Description                                        |
-| ------------------------ | ------------------ | -------------------------------------------------- |
-| `config`                 | read/write/delete  | LiteLLM connection (`base_url`, `master_key`)      |
-| `roles/<name>`           | read/write/delete  | Constraints for generated keys                     |
-| `roles/`                 | list               | List configured roles                              |
-| `creds/<name>`           | read               | Generate a virtual key for the role                |
+```sh
+$ vault read litellm/creds/team-a
+Key                Value
+---                -----
+lease_id           litellm/creds/team-a/AbC123...
+lease_duration     1h
+lease_renewable    true
+key                sk-...
+key_alias          vault-team-a-1a2b3c4d
+max_budget         50
+models             [gpt-4o claude-3-5-sonnet]
+role               team-a
+```
 
-### Role fields
+Revoke it, which deletes the key in LiteLLM:
 
-| Field              | Type     | Description                                            |
-| ------------------ | -------- | ------------------------------------------------------ |
-| `models`           | list     | Allowed models; empty means unrestricted               |
-| `max_budget`       | float    | Spending limit per key; 0 means unlimited              |
-| `key_alias_prefix` | string   | Prefix for the generated key alias (default `vault`)   |
-| `metadata`         | kv pairs | Metadata attached to each generated key                |
-| `ttl`              | duration | Default lease TTL                                      |
-| `max_ttl`          | duration | Maximum lease TTL                                      |
+```sh
+vault lease revoke litellm/creds/team-a/AbC123...
+```
+
+## Documentation
+
+Full path reference:
+
+- [config](docs/config.md) - connection to the LiteLLM proxy
+- [roles](docs/roles.md) - constraints applied to generated keys
+- [creds](docs/creds.md) - generating, renewing and revoking keys
 
 ## Development
 
 ```sh
-make build        # build the plugin into ./dist
-make test         # unit tests (race-enabled)
-make lint         # go vet
-make fmt          # gofmt
-make e2e          # full end-to-end test in Docker against Vault AND OpenBao
-make e2e-vault    # e2e against Vault only
-make e2e-openbao  # e2e against OpenBao only
+make build   # build ./dist/vault-plugin-secrets-litellm
+make test    # unit tests
+make lint    # go vet
+make e2e     # end-to-end tests in Docker against Vault and OpenBao
 ```
 
-### End-to-end tests
+## License
 
-`make e2e` builds the plugin, spins up a LiteLLM proxy with its Postgres key
-store, plus both a Vault and an OpenBao dev server with the plugin mounted, then
-exercises the whole lifecycle against **each engine**: configure → create role →
-generate key → call an allowed model → verify a disallowed model is rejected →
-revoke → verify the key stops working.
-
-Requires Docker. Bind mounts use the `:z` flag so the stack works under SELinux
-(Fedora/RHEL). Select engines with `ENGINES="vault openbao"`.
-
-### Releasing
-
-Versioning is tag-driven:
-
-```sh
-make patch   # v0.1.0 -> v0.1.1
-make minor   # v0.1.1 -> v0.2.0
-make major   # v0.2.0 -> v1.0.0
-```
+[MIT](LICENSE)

@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/sdk/plugin"
 
-	litellm "git.unkin.net/unkin/vault-plugin-secrets-litellm"
+	litellm "github.com/IUCLabs/vault-plugin-secrets-litellm"
 )
 
 func main() {
