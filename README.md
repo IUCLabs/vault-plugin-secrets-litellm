@@ -20,40 +20,98 @@ To manage the engine's configuration and roles from Terraform, use
 
 ## Installation
 
-### Install
-
-Install the x86_64 RPM (vault or openbao flavour) from the
-[releases page](https://github.com/IUCLabs/vault-plugin-secrets-litellm/releases).
-It installs the binary as `/usr/libexec/vault-plugins/vault-plugin-secrets-litellm`
-(vault) or `/usr/libexec/openbao-plugins/vault-plugin-secrets-litellm` (openbao).
-Or build one:
+Release assets download through artifactapi's GitHub proxy, which serves
+`https://artifactapi.k8s.syd1.au.unkin.net/api/v1/remote/github/IUCLabs/vault-plugin-secrets-litellm/releases/download/<tag>/<file>`.
+Each method below ends with `SHA256` set for [registration](#register-and-enable).
+With OpenBao, use `bao` in place of `vault`.
 
 ```sh
-git clone https://github.com/IUCLabs/vault-plugin-secrets-litellm
-cd vault-plugin-secrets-litellm
-make build   # writes ./dist/vault-plugin-secrets-litellm
+TAG=vX.Y.Z  # the release to install
+V=${TAG#v}
+BASE=https://artifactapi.k8s.syd1.au.unkin.net/api/v1/remote/github/IUCLabs/vault-plugin-secrets-litellm/releases/download/$TAG
 ```
 
-### Register
+### RPM
 
-Copy the binary into the directory set as `plugin_directory` in the server
-config (Vault or OpenBao), then register it in the plugin catalog with its
-SHA-256. Replace `<plugin_directory>` below with that path:
+`vault-plugin-secrets-litellm` installs `/usr/libexec/vault-plugins/vault-plugin-secrets-litellm`;
+`openbao-plugin-secrets-litellm` installs it in `/usr/libexec/openbao-plugins/`.
+Set the server's `plugin_directory` to that directory.
 
 ```sh
-cp dist/vault-plugin-secrets-litellm <plugin_directory>/
+dnf install vault-plugin-secrets-litellm  # from a yum repo carrying it, or from the release:
+dnf install "$BASE/vault-plugin-secrets-litellm-$V-1.x86_64.rpm"  # openbao-plugin-secrets-litellm-$V-1.x86_64.rpm for OpenBao
 
+SHA256=$(sha256sum /usr/libexec/vault-plugins/vault-plugin-secrets-litellm | cut -d' ' -f1)
+```
+
+### Released binary
+
+`vault-plugin-secrets-litellm_<version>_SHA256SUMS` lists the binary and the RPMs, and
+`SHA256SUMS.sig` is its detached signature by the IUCLabs release GPG key.
+
+```sh
+curl -fLO "$BASE/vault-plugin-secrets-litellm_${V}_linux_amd64"
+curl -fLO "$BASE/vault-plugin-secrets-litellm_${V}_SHA256SUMS"
+curl -fLO "$BASE/vault-plugin-secrets-litellm_${V}_SHA256SUMS.sig"
+gpg --verify "vault-plugin-secrets-litellm_${V}_SHA256SUMS.sig" "vault-plugin-secrets-litellm_${V}_SHA256SUMS"
+sha256sum --check --ignore-missing "vault-plugin-secrets-litellm_${V}_SHA256SUMS"
+
+install -m 0755 "vault-plugin-secrets-litellm_${V}_linux_amd64" <plugin_directory>/vault-plugin-secrets-litellm
 SHA256=$(sha256sum <plugin_directory>/vault-plugin-secrets-litellm | cut -d' ' -f1)
-
-vault plugin register \
-  -sha256="$SHA256" \
-  secret vault-plugin-secrets-litellm
 ```
 
-### Enable
+### Kubernetes image volume
+
+`ghcr.io/iuclabs/vault-plugin-secrets-litellm:<tag>` is a `FROM scratch` image holding only
+`/vault-plugin-secrets-litellm`. Mount it read-only into the Vault/OpenBao container with an
+[image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image):
+Kubernetes 1.31+ with the `ImageVolume` feature gate (beta, on by default from
+1.33). Vault and OpenBao only run a binary that sits directly in
+`plugin_directory`, not in a subdirectory, so mount the file itself with
+`subPath`, which on image volumes needs 1.33+.
+
+```yaml
+spec:
+  containers:
+    - name: vault
+      volumeMounts:
+        - name: plugin-litellm
+          mountPath: /vault/plugins/vault-plugin-secrets-litellm  # <plugin_directory>/vault-plugin-secrets-litellm
+          subPath: vault-plugin-secrets-litellm
+          readOnly: true
+  volumes:
+    - name: plugin-litellm
+      image:
+        reference: ghcr.io/iuclabs/vault-plugin-secrets-litellm:vX.Y.Z
+        pullPolicy: IfNotPresent
+```
+
+The image holds the released binary, so its sha256 is the `linux_amd64` line
+of `SHA256SUMS`:
 
 ```sh
+SHA256=$(curl -fsSL "$BASE/vault-plugin-secrets-litellm_${V}_SHA256SUMS" | awk '/_linux_amd64$/ {print $1}')
+```
+
+### From source
+
+```sh
+make build  # writes ./dist/vault-plugin-secrets-litellm
+```
+
+Copy it into `plugin_directory` and take `SHA256` from `sha256sum` as above.
+
+### Register and enable
+
+```sh
+vault plugin register -sha256="$SHA256" secret vault-plugin-secrets-litellm
 vault secrets enable -path=litellm vault-plugin-secrets-litellm
+```
+
+After replacing the binary, register the new sha256 and reload the plugin:
+
+```sh
+vault write sys/plugins/reload/backend plugin=vault-plugin-secrets-litellm
 ```
 
 ## Configuration
